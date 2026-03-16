@@ -1,1 +1,9 @@
-
+pandas==2.2.0
+requests==2.31.0
+python-dotenv==1.0.0
+jupyter==1.0.0
+folium==0.15.0
+plotly==5.18.0
+geopandas==0.14.0
+census==0.8.13
+fredapi==0.5.1
