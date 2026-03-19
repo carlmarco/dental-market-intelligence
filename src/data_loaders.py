@@ -3,10 +3,12 @@ load_dotenv()  # Load environment variables from .env file
 import os
 import pandas as pd
 import requests
+import io
 #still need import .env
 CENSUS_API_KEY = os.getenv("CENSUS_API_KEY")
 FRED_API_KEY = os.getenv("FRED_API_KEY")
 from census import Census
+from fredapi import Fred
 
 
 def fetch_nppes() -> pd.DataFrame:
@@ -32,6 +34,7 @@ def fetch_nppes() -> pd.DataFrame:
             batch.append(filtered_chunk)
         print(f"Processed chunk with {len(chunk)} rows, found {len(filtered_chunk)} dental providers.")
     df = pd.concat(batch, ignore_index=True)
+    pd.to_parquet(df, 'nppes_dental_providers.parquet', index=False)
     return df
 
 
@@ -77,15 +80,26 @@ def fetch_acs_demographics(year: int, api_key: str) -> pd.DataFrame:
     df[insurance_cols] = df[insurance_cols].apply(pd.to_numeric, errors='coerce')
     df['insured_total'] = df[insurance_cols].sum(axis=1)
     df['pct_insured'] = df['insured_total'] / df['B27001_001E'].astype(float) * 100
+    pd.to_parquet(df, 'acs_demographics_2021.parquet', index=False)
+    return df
         
 def fetch_gcspi() -> pd.DataFrame:
-     #requests pull: https://www.newyorkfed.org/medialibrary/research/interactives/GSCPI/downloads/gscpi_data.xlsx 
-     #pressure index only value column, positive value indicates above average supply chain pressure
-     pass
+    #requests pull: https://www.newyorkfed.org/medialibrary/research/interactives/GSCPI/downloads/gscpi_data.xlsx 
+    #pressure index only value column, positive value indicates above average supply chain pressure
+    url = "https://www.newyorkfed.org/medialibrary/research/interactives/GSCPI/downloads/gscpi_data.xlsx"
+    resp = requests.get(url)
+    with io.BytesIO(resp.content) as f:
+        df = pd.read_excel(f, sheet_name='GSCPI Monthly Data', 
+                           skiprows=4, usecols='A:B', names=['date', 'gscpi'], dtype={'date': str, 'gscpi': float})
+    df['date'] = pd.to_datetime(df['date'])
+    return df
 
 def fetch_bdi(api_key: str) -> pd.DataFrame:
     #FRED API series ID is DBDNTD for baltic dry index. full history pull so no date parameter needed
-    pass
+    fred = Fred(api_key=FRED_API_KEY)
+    data = fred.get_series('DBDNTD')
+    return data
+
 
 
 def __main__():
