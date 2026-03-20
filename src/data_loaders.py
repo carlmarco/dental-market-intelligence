@@ -15,7 +15,9 @@ def fetch_nppes() -> pd.DataFrame:
     #filtering for dental providers only using taxonomy codes, which are hierarchical and standardized across the industry.
 
     use_cols = ['NPI', 'Entity Type Code', 'Provider Organization Name (Legal Business Name)',
-            'Provider First Name','Healthcare Provider Taxonomy Code_1',
+            'Provider First Name', 'Provider Last Name (Legal Name)', 'Provider First Line Business Mailing Address',
+            'Provider First Line Business Practice Location Address',
+            'Healthcare Provider Taxonomy Code_1',
             'Healthcare Provider Taxonomy Code_2',
             'Provider Business Practice Location Address Postal Code',
             'Provider Business Practice Location Address State Name']
@@ -27,14 +29,29 @@ def fetch_nppes() -> pd.DataFrame:
 
     batch = []
 
-    for chunk in pd.read_csv('npidata_pfile_20050523-20240523.csv', usecols=use_cols, chunksize=50000):
+    for chunk in pd.read_csv('/../npidata_pfile_20050523-20240523.csv', usecols=use_cols, chunksize=50000):
         mask = chunk[[c for c in chunk.columns if 'taxonomy' in c.lower()]].isin(codes).any(axis=1)
         filtered_chunk = chunk[mask]
         if len(filtered_chunk) > 0:
             batch.append(filtered_chunk)
         print(f"Processed chunk with {len(chunk)} rows, found {len(filtered_chunk)} dental providers.")
     df = pd.concat(batch, ignore_index=True)
-    pd.to_parquet(df, 'nppes_dental_providers.parquet', index=False)
+    df.columns = [col.strip().lower() for col in df.columns]
+    df = df.rename(columns={
+    'npi': 'npi',
+    'entity type code': 'entity_type_code',
+    'provider organization name (legal business name)': 'provider_organization_name',
+    'provider first name': 'provider_first_name',
+    'provider last name (legal name)': 'provider_last_name',
+    'provider first line business mailing address': 'mailing_address',
+    'provider first line business practice location address': 'practice_location_address',
+    'healthcare provider taxonomy code_1': 'taxonomy_code_1',
+    'healthcare provider taxonomy code_2': 'taxonomy_code_2',
+    'provider business practice location address postal code': 'practice_location_postal',
+    'provider business practice location address state name': 'practice_location_state'
+    })
+    df['practice_location_postal'] = df['practice_location_postal'].astype(str).str.strip().str[:5].str.zfill(5)
+    #df.to_parquet('nppes_dental_providers.parquet', index=False)
     return df
 
 
@@ -72,7 +89,7 @@ def fetch_acs_demographics(year: int, api_key: str) -> pd.DataFrame:
                 'B01002_001E', 
                 'B27001_001E',] + need
 
-    result = c.acs5.get(variables, {'for': 'zip code tabulation area:*'},
+    result = c.acs5.get(variables, {'for': 'county:*'},
                         year=2021)
     df = pd.DataFrame(result)
     insurance_cols = [col for col in df.columns if col.startswith('B27001') and col != 'B27001_001E']
@@ -80,7 +97,7 @@ def fetch_acs_demographics(year: int, api_key: str) -> pd.DataFrame:
     df[insurance_cols] = df[insurance_cols].apply(pd.to_numeric, errors='coerce')
     df['insured_total'] = df[insurance_cols].sum(axis=1)
     df['pct_insured'] = df['insured_total'] / df['B27001_001E'].astype(float) * 100
-    pd.to_parquet(df, 'acs_demographics_2021.parquet', index=False)
+    df.to_parquet('../data/processed/acs_demographics_2021.parquet', index=False)
     return df
         
 def fetch_gcspi() -> pd.DataFrame:
@@ -88,13 +105,14 @@ def fetch_gcspi() -> pd.DataFrame:
     #pressure index only value column, positive value indicates above average supply chain pressure
     url = "https://www.newyorkfed.org/medialibrary/research/interactives/GSCPI/downloads/gscpi_data.xlsx"
     resp = requests.get(url)
-    with io.BytesIO(resp.content) as f:
+    with io.BytesIO(resp.content) as f: 
         df = pd.read_excel(f, sheet_name='GSCPI Monthly Data', 
                            skiprows=4, usecols='A:B', names=['date', 'gscpi'], dtype={'date': str, 'gscpi': float})
     df['date'] = pd.to_datetime(df['date'])
+    df.to_parquet('../data/processed/gscpi.parquet', index=False)
     return df
 
-def fetch_bdi(api_key: str) -> pd.DataFrame:
+#def fetch_bdi(api_key: str) -> pd.DataFrame:
     #FRED API series ID is DBDNTD for baltic dry index. full history pull so no date parameter needed
     fred = Fred(api_key=FRED_API_KEY)
     data = fred.get_series('DBDNTD')
@@ -106,4 +124,8 @@ def __main__():
     years = [2018, 2019, 2020, 2021, 2022, 2023]
     cbp_dfs = [fetch_cbp_dental(year, CENSUS_API_KEY) for year in years]
     cbp_all = pd.concat(cbp_dfs, ignore_index=True)
-    cbp_all.to_csv('cbp_dental_2018_2023.csv', index=False)
+    cbp_all.to_parquet('../data/processed/cbp_dental_2018_2023.parquet', index=False)
+    df = fetch_gcspi()
+
+if __name__ == "__main__":
+    __main__()
